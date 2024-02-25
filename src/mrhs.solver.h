@@ -31,6 +31,7 @@ typedef struct {
    int nrows;        // number of rows
    int ncols;		   // total number of columns = sum of blocksizes
    _block **rows;      // storage: array of nrows pointers to arrays of blocks
+   int* weights;     // hamming weight of RHS 
 } _bbm;
 
 /// Creates a dynamic BlockBitMatrix with nrows and nblocks, 
@@ -59,6 +60,7 @@ typedef struct _te {
     _block   value;
     _block  *sm_row;
     int  first;       //first non-zero index
+    int  weight;      //original hamming weight of the RHS
     struct _te *next;   
 } TableEntry;
 
@@ -79,12 +81,12 @@ ActiveListEntry* prepare(_bbm *pbbm, _bbm *prhs[]);
 void free_ales(ActiveListEntry* ale, int count);
 
 ///Solver core function
-typedef int (*sol_rep_fn_t)(long long int counter, _bbm *pbbm, ActiveListEntry* ale);
+typedef int (*sol_rep_fn_t)(long long int counter, _bbm *pbbm, ActiveListEntry* ale, int weight);
 
 //front end to non-recursive call
 //TODO: for multiprocessing, fork can be used and new process created for each rhs
 //TODO: for threading, sol must be created for each rhs/thread 
-long long int solve(ActiveListEntry* ale, _bbm *pbbm, long long int *pCount, long long int *pXors, sol_rep_fn_t report_solution);
+long long int solve(ActiveListEntry* ale, _bbm *pbbm, long long int *pCount, long long int *pXors, int weight, int abort, sol_rep_fn_t report_solution);
 
 
 ///formula from article Ntotal

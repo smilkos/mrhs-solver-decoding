@@ -174,6 +174,8 @@ void print_bv(_bv *bv, FILE* f)
 	}
 	for (int bit = 0; bit < LASTBLOCKSIZE(bv->ncols); bit++)
 		fprintf(f, "%01x", (unsigned int) ((bv->row[block] >> bit)&ONE));
+	fprintf(f, " weight: %d", (unsigned int)(bv->weight));
+
 }
 
 ///print bit vector to file

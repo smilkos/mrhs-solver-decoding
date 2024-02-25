@@ -80,7 +80,7 @@ SparseBitArray* to_sparse_bit_array(_bm bm)
 	//complex algorithm, multiple bit blocks
 
 	//step1: sort values
-	_block values[bm.nrows];
+	_block *values = malloc(bm.nrows * sizeof(_block));
 	for (int row = 0; row < bm.nrows; row++)
 	{
 		values[row] = bm.rows[row];

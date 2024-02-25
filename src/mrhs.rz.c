@@ -17,8 +17,9 @@
 #include <stdlib.h>
 #include <memory.h>
 #include <time.h>
-#include <unistd.h>
+#include <io.h>
 #include <math.h>
+#include <stdint.h>
 
 #include "mrhs.bv.h"
 #include "mrhs.h"
@@ -30,10 +31,10 @@ _bbm *GlobalA = NULL;
 _bv  *GlobalResults = NULL;
 
 //TODO: create function in solver to get solution y, and to multiply y*A
-int report_solution_extract_y(long long int counter, _bbm *pbbm, ActiveListEntry* ale)
+int report_solution_extract_y(long long int counter, _bbm *pbbm, ActiveListEntry* ale, int weight)
 {
      int block, pivot, i;
-     _block value, y[pbbm->nrows];
+     _block value, *y = malloc(pbbm->nrows * sizeof(_block));
 
 #if (_VERBOSITY > 1)
 	 fprintf(stdout, "Found solution %lli: ", counter);
@@ -41,6 +42,7 @@ int report_solution_extract_y(long long int counter, _bbm *pbbm, ActiveListEntry
 
      GlobalResults = (_bv*) realloc(GlobalResults, counter*(sizeof(_bv)));
      GlobalResults[counter-1] = create_bv(GlobalA->nblocks);
+     GlobalResults[counter - 1].weight = weight;
 
      //TODO: create better functions for this...
      i = 0;
@@ -72,11 +74,22 @@ int report_solution_extract_y(long long int counter, _bbm *pbbm, ActiveListEntry
 	return 0;   //return 1; to find multiple solutions
 }
 
+int hamming_weight(_block input) {
+    int result = 0;
+
+    while (input) {
+        result += input & 1;
+        input >>= 1;
+    }
+
+    return result;
+}
 
 //front end to non-recursive call
 //TODO: connect with MRHS RZ solver, refactor...
-long long int solve_rz(MRHS_system *system, _bv **pResults, int maxt, long long int* pTotal, long long int* pXors)
+long long int solve_rz(MRHS_system *system, _bv **pResults, int maxt, int weight, int abort, long long int* pTotal, long long int* pXors)
 {
+    //_experiment easd;
      ActiveListEntry* pActiveList;
      long long int count = 0;
 
@@ -88,7 +101,7 @@ long long int solve_rz(MRHS_system *system, _bv **pResults, int maxt, long long 
     }
 
 	//TODO: pbbm and prhs from system...
-	int blocksizes[system->nblocks];
+	int *blocksizes = malloc(system->nblocks * sizeof(int));
 	for (int block = 0; block < system->nblocks; block++)
 		blocksizes[block] = system->pM[block].ncols;
 
@@ -108,22 +121,25 @@ long long int solve_rz(MRHS_system *system, _bv **pResults, int maxt, long long 
         for (int row = 0; row < prhs[block]->nrows; row++)
         {
 			prhs[block]->rows[row][0] = system->pS[block].rows[row];
+            prhs[block]->weights[row] = hamming_weight(system->pS[block].rows[row]);
 		}
 	}
 
-#if (_VERBOSITY > 1)
+//#if (_VERBOSITY > 1)
     int rank =
-#endif
+//#endif
                 echelonize(pbbm, prhs, &pA);
 
+
+    //print_bbm(stdout, pbbm, 0);
+    //print_bbm(stdout, prhs, 1);
     GlobalA = pA;
 #if (_VERBOSITY > 1)
 	fprintf(stdout, "Starting RZ solver, system rank = %i\n", rank);
 #endif
-
     pActiveList = prepare(pbbm, prhs);
 
-    *pTotal = solve(pActiveList, pbbm, &count, pXors, report_solution_extract_y);
+    *pTotal = solve(pActiveList, pbbm, &count, pXors, weight, abort, report_solution_extract_y);
 
     free_ales(pActiveList, pbbm->nblocks);
 

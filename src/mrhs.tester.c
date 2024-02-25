@@ -17,12 +17,14 @@
 #include <stdlib.h>
 #include <memory.h>
 #include <time.h>
-#include <unistd.h>
+#include <io.h>
 #include <math.h>
+#include <windows.h>
 
 #include "mrhs.bv.h"
 #include "mrhs.hillc.h"
 #include "mrhs.rz.h"
+//#include "opt.c"
 
 
 /// ////////////////////////////////////////////////////////////////////
@@ -35,7 +37,7 @@
 //4 -> include statistics
 
 #ifndef _VERBOSITY
- #define _VERBOSITY 4
+ #define _VERBOSITY 0
 #endif
 
 #define RZ_SOLVER_TYPE 1
@@ -110,6 +112,9 @@ typedef struct {
   int solver;   //solver type
   int compress;  //enable compression of system
   int randsol;   //enforce at least one random solution
+  int andsys;   //special system based on PRNG
+  int weight; //maximal allowed weight of result
+  int abort; //early abort
 
   char *in;    // system  input file
   char *out;   // system output file
@@ -121,16 +126,112 @@ typedef struct {
 //                 returns flag, whether run full experiment or just estimate, CMD LINE -e
 int parse_cmd(int argc, char *argv[], _experiment *setup);
 
+
+
+
+
+
+
+
+
+
+
+
+
+int     opterr = 1,             /* if error message should be printed */
+optind = 1,             /* index into parent argv vector */
+optopt,                 /* character checked for validity */
+optreset;               /* reset getopt */
+char* optarg;                /* argument associated with option */
+
+#define BADCH   (int)'?'
+#define BADARG  (int)':'
+#define EMSG    ""
+
+/*
+* getopt --
+*      Parse argc/argv argument vector.
+*/
+int
+getopt(int nargc, char* const nargv[], const char* ostr)
+{
+    static char* place = EMSG;              /* option letter processing */
+    const char* oli;                        /* option letter list index */
+
+    if (optreset || !*place) {              /* update scanning pointer */
+        optreset = 0;
+        if (optind >= nargc || *(place = nargv[optind]) != '-') {
+            place = EMSG;
+            return (-1);
+        }
+        if (place[1] && *++place == '-') {      /* found "--" */
+            ++optind;
+            place = EMSG;
+            return (-1);
+        }
+    }                                       /* option letter okay? */
+    if ((optopt = (int)*place++) == (int)':' ||
+        !(oli = strchr(ostr, optopt))) {
+        /*
+        * if the user didn't specify '-' as an option,
+        * assume it means -1.
+        */
+        if (optopt == (int)'-')
+            return (-1);
+        if (!*place)
+            ++optind;
+        if (opterr && *ostr != ':')
+            (void)printf("illegal option -- %c\n", optopt);
+        return (BADCH);
+    }
+    if (*++oli != ':') {                    /* don't need argument */
+        optarg = NULL;
+        if (!*place)
+            ++optind;
+    }
+    else {                                  /* need an argument */
+        if (*place)                     /* no white space */
+            optarg = place;
+        else if (nargc <= ++optind) {   /* no arg */
+            place = EMSG;
+            if (*ostr == ':')
+                return (BADARG);
+            if (opterr)
+                (void)printf("option requires an argument -- %c\n", optopt);
+            return (BADCH);
+        }
+        else                            /* white space */
+            optarg = nargv[optind];
+        place = EMSG;
+        ++optind;
+    }
+    return (optopt);                        /* dump back option letter */
+}
+
+
+
+
+
+
+
+
+
+
+
+
 void help(char* fn)
 {
-    fprintf(HELP_FILE, "\nUsage: %s [-n N] [-m M] [-l L] [-k K] [-s SEED] [-S SED2] [-f FILE] [-o OUT] [-c] [-r] [-e TYPE] [-t MAXT] [-d DENS]\n", fn);
+    fprintf(HELP_FILE, "\nUsage: %s [-P] [-n N] [-m M] [-l L] [-k K] [-s SEED] [-w WEIGHT] [-a ABORT] [-S SED2] [-f FILE] [-o OUT] [-c] [-r] [-e TYPE] [-t MAXT] [-d DENS]\n", fn);
     fprintf(HELP_FILE, "   N = number of variables (def. 10)\n");
     fprintf(HELP_FILE, "   M = number of MRHS eqs  (def. 10)\n");
     fprintf(HELP_FILE, "   L = dimension of RHSs   (def. 3)\n");
     fprintf(HELP_FILE, "   K = num. vectors in RHS (def. 4)\n\n");
+    fprintf(HELP_FILE, "NOTE: -P enables special PRNG based equations: override meaning of N,M,K,L, ignored -r,-d \n\n");
     fprintf(HELP_FILE, "MAXT = time limit (in seconds)\n");
     fprintf(HELP_FILE, "DENS = density (-1 - uniform random, otherwise expected extra max. number of 1s in M)\n");
     fprintf(HELP_FILE, "SEED = randomness seed for MRHS system\n");
+    fprintf(HELP_FILE, "WEIGHT = maximal weight of output (used in decoding)\n");
+    fprintf(HELP_FILE, "ABORT = 1 for early abort 0 for full search\n");
     fprintf(HELP_FILE, "SED2 = randomness seed for computation\n\n");
     fprintf(HELP_FILE, "NOTE: -r enables enforcement of a (random) solution for generated systems \n\n");
 
@@ -166,6 +267,10 @@ void set_default_experiment(_experiment *setup)
     setup->solver = RZ_SOLVER_TYPE;    //try to solve with RZ solver
     setup->compress = 0;  //no equation compression
     setup->randsol  = 0;  //no enforced random solution
+    setup->andsys   = 0;  //not special PRNG system
+    setup->andsys = 0;  //not special PRNG system
+    setup->weight = INT_MAX;
+    setup->abort = 0;
 
     setup->in    = NULL; //no input/output
     setup->out   = NULL;
@@ -179,7 +284,7 @@ int parse_cmd(int argc, char *argv[], _experiment *setup)
 
    set_default_experiment(setup);
 
-   while ((c = getopt (argc, argv, "cre:hk:l:m:n:s:S:f:o:t:d:")) != -1)
+   while ((c = getopt (argc, argv, "Pcre:hk:l:m:n:s:w:a:S:f:o:t:d:")) != -1)
       switch (c)
       {
       case 'k':
@@ -199,6 +304,12 @@ int parse_cmd(int argc, char *argv[], _experiment *setup)
         break;
       case 's':
         sscanf(optarg, "%i", &(setup->seed));
+        break;
+      case 'w':
+        sscanf(optarg, "%i", &(setup->weight));
+        break;
+      case 'a':
+        sscanf(optarg, "%i", &(setup->abort));
         break;
       case 'S':
         sscanf(optarg, "%i", &(setup->seed2));
@@ -220,6 +331,9 @@ int parse_cmd(int argc, char *argv[], _experiment *setup)
         break;
       case 'r':
         setup->randsol  = 1;
+        break;
+      case 'P':
+        setup->andsys  = 1;
         break;
      case '?':
       case 'h':
@@ -264,10 +378,27 @@ int prepare_system(MRHS_system *system, _experiment *setup)
 		srand(setup->seed);
 
 		//empty system:
-        *system = create_mrhs_fixed(setup->n, setup->m, setup->l, setup->k);
+        if (setup->andsys == 1)
+        {
+            *system = create_mrhs_fixed(setup->m+setup->k-setup->l, setup->m, 3, 4);
+        }
+        else
+        {
+            *system = create_mrhs_fixed(setup->n, setup->m, setup->l, setup->k);
+        }
 
 		//dense or sparse?
-		if (setup->d == -1)
+        if (setup->andsys == 1)
+        {
+            if (setup->d < 0)
+                fill_mrhs_and(system, setup->k, setup->l);
+            else
+                fill_mrhs_and_sparse(system, setup->k, setup->l, setup->d);
+            
+            setup->n = setup->m + setup->k - setup->l;
+            setup->l = 3; setup->k = 4;
+        }
+		else if (setup->d == -1)
 		{
         	fill_mrhs_random(system);
         }
@@ -387,7 +518,7 @@ int main(int argc, char* argv[])
             stats.count = solve_hc(&system, &results, experiment.maxt, &stats.xors, &stats.total);
             break;
         case RZ_SOLVER_TYPE:
-            stats.count = solve_rz(&system, &results, experiment.maxt, &stats.xors, &stats.total);
+            stats.count = solve_rz(&system, &results, experiment.maxt, experiment.weight, experiment.abort, &stats.xors, &stats.total);
             break;
         }
 	}
@@ -416,7 +547,8 @@ int main(int argc, char* argv[])
 		for (int i = 0; i < stats.count; i++)
 		{
 #if (_VERBOSITY > 1)
-			fprintf(REPORT_FILE, "\nSolution %i: ", i+1);
+			//fprintf(REPORT_FILE, "\nSolution %i: ", i+1);
+			fprintf(REPORT_FILE, "\n");
 			print_bv(&results[i], REPORT_FILE);
 #endif
 			clear_bv(&results[i]);

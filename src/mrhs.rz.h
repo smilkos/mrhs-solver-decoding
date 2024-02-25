@@ -13,6 +13,6 @@
 
 //front end to non-recursive call
 //TODO: connect with MRHS RZ solver, refactor...
-long long int solve_rz(MRHS_system *system, _bv **pResults, int maxt, long long int* pCount, long long int* pXors);
+long long int solve_rz(MRHS_system *system, _bv **pResults, int maxt, int weight, int abort, long long int* pCount, long long int* pXors);
 
 #endif //_SOLVER_H

@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include "mrhs.bm.h"
+//#include "mrhs.solver.h"
 
 ///
 /// MRHS system
@@ -37,11 +38,15 @@ void fill_mrhs_random_sparse(MRHS_system *psystem);
 void fill_mrhs_random_sparse_extra(MRHS_system *psystem, int density);
 void ensure_random_solution(MRHS_system *psystem);
 
+void fill_mrhs_and(MRHS_system *psystem, int k, int l);
+void fill_mrhs_and_sparse(MRHS_system *psystem, int k, int l, int density);
+
 /// I/O
 
 MRHS_system read_mrhs_variable(FILE *f);
 int write_mrhs_variable(FILE *f, MRHS_system system);
 int print_mrhs(FILE *f, MRHS_system system);
+//int print_bbm(FILE* f, _bbm* system, char rhs);
 
 ///substitute given linear equation into system
 int linear_substitution(MRHS_system *system, _bv *column, _block rhs);

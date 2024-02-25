@@ -10,13 +10,15 @@
 #include "mrhs.bm.h"
 #include "mrhs.bv.h"
 #include "mrhs.h"
+#include "mrhs.solver.h"
 
 
 /// n, m, (l, k) - fixed
 MRHS_system create_mrhs_fixed(int nrows, int nblocks, int blocksize, int rhscount)
 {
-	int blocksizes[nblocks];
-	int rhscounts[nblocks];
+	int *blocksizes = malloc(nblocks * sizeof(int));
+	int* rhscounts = malloc(nblocks * sizeof(int));
+
 	for (int block = 0; block < nblocks; block++)
 	{
 		blocksizes[block] = blocksize;
@@ -94,6 +96,58 @@ void fill_mrhs_random_sparse(MRHS_system *psystem)
 		random_unique_bm(&psystem->pS[block]);
 	}
 }
+
+/// Fill MRHS system with "AND" PRNG data,
+///   block structure, AND gates + constants
+///     m -> number of blocks (system->nblocks)
+///     IN: k -> key variables
+///     IN: l -> filter variables
+///    first m - l equations are AND blocks with output variables
+///    last l equations are filters
+///   PRE: ncols in each block == 3, rhs in each block == 4
+///   PRE: 0 <= l <= nblocks
+///   PRE: nrows == k+m-l 
+void fill_mrhs_and(MRHS_system *psystem, int k, int l)
+{
+    int m = psystem->nblocks;
+    if (l > m || l < 0 || k + m - l != psystem->pM->nrows)
+        return;
+    
+	for (int block = 0; block < m-l; block++)
+	{
+		random_and_cols_bm(&psystem->pM[block], k+block);
+		random_and_bm(&psystem->pS[block]);
+	}
+	for (int block = m-l; block < m; block++)
+	{
+		random_bm(&psystem->pM[block]);
+		random_and_bm(&psystem->pS[block]);
+	}
+}
+
+/// Fill MRHS system with "AND" PRNG data,
+///   block structure, AND gates + constants, sparse version
+///     m -> number of blocks (system->nblocks)
+///     IN: k -> key variables
+///     IN: l -> filter variables
+///    first m - l equations are AND blocks with output variables
+///    last l equations are filters
+///   PRE: ncols in each block == 3, rhs in each block == 4
+///   PRE: 0 <= l <= nblocks
+///   PRE: nrows == k+m-l 
+void fill_mrhs_and_sparse(MRHS_system *psystem, int k, int l, int density)
+{
+    int m = psystem->nblocks;
+    if (l > m || l < 0 || k + m - l != psystem->pM->nrows)
+        return;
+    
+	for (int block = 0; block < psystem->nblocks; block++)
+	{
+		random_sparse_and_cols_bm(&psystem->pM[block], k+block, density);
+		random_and_bm(&psystem->pS[block]);
+	}
+}
+
 
 /// Fill MRHS system with random data
 ///  M is sparse -> one 1 in each column + density number of ones
@@ -295,6 +349,72 @@ int print_mrhs(FILE *f, MRHS_system system)
 			fprintf(f, " ");
 		}
 		sum += fprintf(f, "\n");
+	}
+	return sum;
+}
+
+int print_bbm(FILE* f, _bbm* system, char rhs)
+{
+	int row, block, nrows, maxrhs;
+	int sum = 0;
+
+	if (system->nblocks == 0) return 0;
+
+	if (rhs == 0)
+	{
+
+		//number of lines for M
+		nrows = system->nrows;
+
+		//print matrix
+		for (row = 0; row < nrows; row++)
+		{
+			for (block = 0; block < system->nblocks; block++)
+			{
+				sum += print_block_bbm(f, system, row, block);
+				sum += fprintf(f, " ");
+			}
+			sum += fprintf(f, "\n");
+		}
+
+		//separator
+		for (block = 0; block < system->nblocks; block++)
+		{
+			for (int bit = 0; bit < system->ncols; bit++)
+			{
+				sum += fprintf(f, "-");
+			}
+			sum += fprintf(f, " ");
+		}
+		sum += fprintf(f, "\n");
+	}
+	else {
+		maxrhs = system[0].nrows;
+		for (block = 1; block < system[0].nblocks; block++)
+		{
+			if (system[block].nrows > maxrhs)
+			{
+				maxrhs = system[block].nrows;
+			}
+		}
+
+		// print RHS part
+		for (row = 0; row < maxrhs; row++)
+		{
+			for (block = 0; block < system[0].nblocks; block++)
+			{
+				// no more rhs in given S
+				if (row >= system[block].nrows)
+				{
+					sum += fprintf(f, "%*c", system[block].ncols + 1, ' ');
+					continue;
+				}
+
+				sum += print_block_bbm(f, system, row, block);
+				fprintf(f, " ");
+			}
+			sum += fprintf(f, "\n");
+		}
 	}
 	return sum;
 }
